@@ -1,0 +1,73 @@
+
+name: Telegram X Pro APK Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+          fetch-depth: 0
+
+      - name: Install Git LFS
+        run: |
+          git lfs install
+          git lfs pull
+          git submodule update --init --recursive
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          source "$HOME/.cargo/env"
+          chmod +x scripts/setup-rust.sh
+          scripts/setup-rust.sh
+
+      - name: Configure Telegram credentials
+        env:
+          API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        run: |
+          test -n "$API_ID"
+          test -n "$API_HASH"
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          echo "rust.dir=$HOME/.cargo" >> local.properties
+          echo "telegram.api_id=$API_ID" >> local.properties
+          echo "telegram.api_hash=$API_HASH" >> local.properties
+
+      - name: Validate source
+        run: ./gradlew :app:validateGitSetup
+
+      - name: Build Telegram X APK
+        run: ./gradlew assembleLatestDebug -Pabi=arm64
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TelegramXPro-APK
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
